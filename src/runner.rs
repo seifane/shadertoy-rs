@@ -3,7 +3,7 @@ use download;
 use error;
 use gfx;
 use gfx::texture;
-use gfx::texture::FilterMethod;
+use gfx::texture::{FilterMethod, Mipmap};
 use gfx::Factory;
 use loader;
 
@@ -20,9 +20,13 @@ use glutin::event::{ElementState, MouseButton};
 
 use notify::{watcher, DebouncedEvent, RecursiveMode, Watcher};
 use std::path::Path;
+use std::sync::{Arc, RwLock};
 use std::sync::mpsc::{channel, TryRecvError};
 
 use std::time::{Duration, Instant};
+use gfx::format::Rgba8;
+use spectrum_analyzer::{Frequency, FrequencyValue};
+use channel::{ImageChannel, SoundChannel};
 
 pub enum TextureId {
     Zero,
@@ -143,27 +147,33 @@ pub fn run(av: ArgValues) -> error::Result<()> {
         factory.create_vertex_buffer_with_slice(&SCREEN, &SCREEN_INDICES[..]);
 
     // Load textures.
-    let texture0 = loader::load_texture(&TextureId::Zero, &av.texture0path, &mut factory)?;
-    let texture1 = loader::load_texture(&TextureId::One, &av.texture1path, &mut factory)?;
-    let texture2 = loader::load_texture(&TextureId::Two, &av.texture2path, &mut factory)?;
-    let texture3 = loader::load_texture(&TextureId::Three, &av.texture3path, &mut factory)?;
 
-    let needs_mipmap =
-        |mode: FilterMethod| mode != FilterMethod::Scale && mode != FilterMethod::Bilinear;
-
-    // Generate mipmaps if needed.
-    if needs_mipmap(av.filter0) {
-        encoder.generate_mipmap(&texture0)
-    };
-    if needs_mipmap(av.filter1) {
-        encoder.generate_mipmap(&texture1)
-    };
-    if needs_mipmap(av.filter2) {
-        encoder.generate_mipmap(&texture2)
-    };
-    if needs_mipmap(av.filter3) {
-        encoder.generate_mipmap(&texture3)
-    };
+    // let mut channel0 = ImageChannel::try_from_path(
+    //     factory.clone(),
+    //     "./textures/04-woodgrain.jpg".to_string(),
+    //     av.filter0,
+    //     av.wrap0
+    // ).unwrap();
+    let mut channel0 = SoundChannel::try_from(factory.clone(), "/home/tiemajor/Music/save-this-world.wav".to_string());
+    channel0.play();
+    let mut channel1 = ImageChannel::try_from_path(
+        factory.clone(),
+        "./textures/02-landscape.jpg".to_string(),
+        av.filter0,
+        av.wrap0
+    ).unwrap();
+    let mut channel2 = ImageChannel::try_from_path(
+        factory.clone(),
+        "./textures/03-whitenoise.jpg".to_string(),
+        av.filter0,
+        av.wrap0
+    ).unwrap();
+    let mut channel3 = ImageChannel::try_from_path(
+        factory.clone(),
+        "./textures/04-woodgrain.jpg".to_string(),
+        av.filter0,
+        av.wrap0
+    ).unwrap();
 
     let mut data = pipe::Data {
         vbuf: vertex_buffer,
@@ -174,22 +184,10 @@ pub fn run(av: ArgValues) -> error::Result<()> {
         i_mouse: [0.0; 4],
         i_frame: -1,
 
-        i_channel0: (
-            texture0,
-            factory.create_sampler(texture::SamplerInfo::new(av.filter0, av.wrap0)),
-        ),
-        i_channel1: (
-            texture1,
-            factory.create_sampler(texture::SamplerInfo::new(av.filter1, av.wrap1)),
-        ),
-        i_channel2: (
-            texture2,
-            factory.create_sampler(texture::SamplerInfo::new(av.filter2, av.wrap2)),
-        ),
-        i_channel3: (
-            texture3,
-            factory.create_sampler(texture::SamplerInfo::new(av.filter3, av.wrap3)),
-        ),
+        i_channel0: channel0.draw(&mut encoder),
+        i_channel1: channel1.draw(&mut encoder),
+        i_channel2: channel2.draw(&mut encoder),
+        i_channel3: channel3.draw(&mut encoder),
 
         frag_color: main_color,
     };
@@ -317,7 +315,6 @@ pub fn run(av: ArgValues) -> error::Result<()> {
                         Err(e) => println!("Failed to create pipeline: {:?}", e),
                     }
                 }
-
                 Err(e) => println!("Failed to load fragment shader: {:?}", e),
             }
         }
@@ -348,6 +345,14 @@ pub fn run(av: ArgValues) -> error::Result<()> {
 
         // Frame.
         data.i_frame += 1;
+
+        data.i_channel0 = channel0.draw(&mut encoder);
+
+        // data.i_channel0 = (
+        //     view,
+        //     sampler,
+        // );
+
 
         // Draw.
         encoder.clear(&data.frag_color, CLEAR_COLOR);
